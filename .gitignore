@@ -1,0 +1,28 @@
+# Nested repositories and vendored dependencies
+/app/termux-app-custom/
+/upstream/
+/vendor/maven/
+
+# Local tooling and device logs
+/.android-sdk-fix/
+/emulator-logs/
+/hs_err_pid*.log
+/replay_pid*.log
+
+# Root-level temporary captures and dumps
+/adb-test.txt
+/codex-preview-*.html
+/cur.xml
+/docs/linshi.txt
+/storage_history_tmp.xml
+/termux_*.png
+/termux_*.xml
+/tmp_*/
+/tmp_*.xml
+/wd_*.xml
+
+# Editor and OS noise
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
