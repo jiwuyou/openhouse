@@ -10,6 +10,10 @@ import android.system.Os;
 import android.util.Pair;
 import android.view.WindowManager;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.termux.BuildConfig;
 import com.termux.R;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
@@ -22,11 +26,14 @@ import com.termux.shared.android.PackageUtils;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxUtils;
 import com.termux.shared.termux.shell.command.environment.TermuxShellEnvironment;
+import com.termux.app.browser.TermuxBrowserWorkspace;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -106,6 +113,8 @@ final class TermuxInstaller {
         if (FileUtils.directoryFileExists(TERMUX_PREFIX_DIR_PATH, true)) {
             if (TermuxFileUtils.isTermuxPrefixDirectoryEmpty()) {
                 Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is empty or only contains specific unimportant files.");
+            } else if (!isPrefixUsable()) {
+                Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" exists but is missing core shell binaries. Reinstalling bootstrap.");
             } else {
                 whenDone.run();
                 return;
@@ -156,7 +165,7 @@ final class TermuxInstaller {
                     final byte[] buffer = new byte[8096];
                     final List<Pair<String, String>> symlinks = new ArrayList<>(50);
 
-                    final byte[] zipBytes = loadZipBytes();
+                    final byte[] zipBytes = loadZipBytes(activity);
                     try (ZipInputStream zipInput = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
                         ZipEntry zipEntry;
                         while ((zipEntry = zipInput.getNextEntry()) != null) {
@@ -220,6 +229,7 @@ final class TermuxInstaller {
 
                     // Recreate env file since termux prefix was wiped earlier
                     TermuxShellEnvironment.writeEnvironmentToFile(activity);
+                    TermuxBrowserWorkspace.ensureRuntimeSetup(activity);
 
                     activity.runOnUiThread(whenDone);
 
@@ -375,12 +385,67 @@ final class TermuxInstaller {
         return FileUtils.createDirectoryFile(directory.getAbsolutePath());
     }
 
-    public static byte[] loadZipBytes() {
-        // Only load the shared library when necessary to save memory usage.
-        System.loadLibrary("termux-bootstrap");
-        return getZip();
+    private static boolean isPrefixUsable() {
+        return new File(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH, "login").exists() ||
+            new File(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH, "sh").exists();
     }
 
-    public static native byte[] getZip();
+    public static byte[] loadZipBytes(@NonNull Context context) throws Exception {
+        String assetName = getBootstrapAssetName();
+        try (InputStream inputStream = context.getAssets().open(assetName);
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return outputStream.toByteArray();
+        }
+    }
+
+    @NonNull
+    private static String getBootstrapAssetName() {
+        String assetPrefix = BuildConfig.TERMUX_BOOTSTRAP_ASSET_PREFIX;
+        if (assetPrefix == null || assetPrefix.trim().isEmpty()) {
+            assetPrefix = "bootstrap";
+        }
+
+        String arch = getBootstrapArchName();
+        return assetPrefix + "-" + arch + ".zip";
+    }
+
+    @NonNull
+    private static String getBootstrapArchName() {
+        String[] supportedAbis = Build.SUPPORTED_ABIS;
+        if (supportedAbis != null) {
+            for (String abi : supportedAbis) {
+                String mapped = mapAbiToBootstrapArch(abi);
+                if (mapped != null) return mapped;
+            }
+        }
+
+        String mappedCpuAbi = mapAbiToBootstrapArch(Build.CPU_ABI);
+        if (mappedCpuAbi != null) return mappedCpuAbi;
+
+        throw new IllegalStateException("Unsupported device ABI for bootstrap.");
+    }
+
+    @Nullable
+    private static String mapAbiToBootstrapArch(@Nullable String abi) {
+        if (abi == null || abi.trim().isEmpty()) return null;
+        switch (abi) {
+            case "arm64-v8a":
+                return "aarch64";
+            case "armeabi-v7a":
+            case "armeabi":
+                return "arm";
+            case "x86":
+                return "i686";
+            case "x86_64":
+                return "x86_64";
+            default:
+                return null;
+        }
+    }
 
 }

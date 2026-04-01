@@ -10,8 +10,10 @@ buildscript {
 
 allprojects {
     repositories {
+        maven { url uri("${rootDir}/../../vendor/maven") }
         google()
         mavenCentral()
+        maven { url "https://maven.mozilla.org/maven2" }
         maven { url "https://jitpack.io" }
     }
 }

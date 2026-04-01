@@ -16,6 +16,8 @@ import com.termux.shared.termux.shell.command.environment.TermuxShellEnvironment
 import com.termux.shared.termux.shell.am.TermuxAmSocketServer;
 import com.termux.shared.termux.shell.TermuxShellManager;
 import com.termux.shared.termux.theme.TermuxThemeUtils;
+import com.termux.app.browser.TermuxBrowserWorkspace;
+import com.termux.app.config.ModeConfigManager;
 
 public class TermuxApplication extends Application {
 
@@ -39,6 +41,7 @@ public class TermuxApplication extends Application {
 
         // Init app wide SharedProperties loaded from termux.properties
         TermuxAppSharedProperties properties = TermuxAppSharedProperties.init(context);
+        ModeConfigManager.init(context);
 
         // Init app wide shell manager
         TermuxShellManager shellManager = TermuxShellManager.init(context);
@@ -61,6 +64,7 @@ public class TermuxApplication extends Application {
 
             // Setup termux-am-socket server
             TermuxAmSocketServer.setupTermuxAmSocketServer(context);
+            TermuxBrowserWorkspace.ensureRuntimeSetup(context);
         } else {
             Logger.logErrorExtended(LOG_TAG, "Termux files directory is not accessible\n" + error);
         }

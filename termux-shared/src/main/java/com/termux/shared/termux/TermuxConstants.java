@@ -740,6 +740,17 @@ public final class TermuxConstants {
         TERMUX_PROPERTIES_PRIMARY_FILE_PATH,
         TERMUX_PROPERTIES_SECONDARY_FILE_PATH);
 
+    /** Termux app mode config primary file path */
+    public static final String TERMUX_MODE_CONFIG_PRIMARY_FILE_PATH = TERMUX_DATA_HOME_DIR_PATH + "/mode-config.json";
+    /** Termux app mode config secondary file path */
+    public static final String TERMUX_MODE_CONFIG_SECONDARY_FILE_PATH = TERMUX_CONFIG_HOME_DIR_PATH + "/mode-config.json";
+    /** Termux app mode config example file path */
+    public static final String TERMUX_MODE_CONFIG_EXAMPLE_FILE_PATH = TERMUX_CONFIG_HOME_DIR_PATH + "/mode-config.example.json";
+    /** Termux app mode config file paths list */
+    public static final List<String> TERMUX_MODE_CONFIG_FILE_PATHS_LIST = Arrays.asList(
+        TERMUX_MODE_CONFIG_PRIMARY_FILE_PATH,
+        TERMUX_MODE_CONFIG_SECONDARY_FILE_PATH);
+
 
 
     /** Termux:Float app properties primary file path */
@@ -923,6 +934,21 @@ public final class TermuxConstants {
         /** termux-am socket file path */
         public static final String TERMUX_AM_SOCKET_FILE_PATH = APPS_DIR_PATH + "/termux-am/am.sock"; // Default: "/data/data/com.termux/files/apps/com.termux/termux-am/am.sock"
 
+        /** termux-browser bridge root path */
+        public static final String TERMUX_BROWSER_APPS_DIR_PATH = APPS_DIR_PATH + "/termux-browser";
+        /** termux-browser requests directory path */
+        public static final String TERMUX_BROWSER_REQUESTS_DIR_PATH = TERMUX_BROWSER_APPS_DIR_PATH + "/requests";
+        /** termux-browser responses directory path */
+        public static final String TERMUX_BROWSER_RESPONSES_DIR_PATH = TERMUX_BROWSER_APPS_DIR_PATH + "/responses";
+        /** termux-browser shared workspace root */
+        public static final String TERMUX_BROWSER_WORKSPACE_DIR_PATH = TERMUX_HOME_DIR_PATH;
+        /** termux-browser downloads directory path */
+        public static final String TERMUX_BROWSER_DOWNLOADS_DIR_PATH = TERMUX_BROWSER_WORKSPACE_DIR_PATH + "/downloads";
+        /** termux-browser cli command path */
+        public static final String TERMUX_BROWSER_CLI_PATH = TERMUX_BIN_PREFIX_DIR_PATH + "/termux-browser";
+        /** termux-host bridge cli command path */
+        public static final String TERMUX_HOST_BRIDGE_CLI_PATH = TERMUX_BIN_PREFIX_DIR_PATH + "/termux-host";
+
 
         /** Termux app BuildConfig class name */
         public static final String BUILD_CONFIG_CLASS_NAME = TERMUX_PACKAGE_NAME + ".BuildConfig"; // Default: "com.termux.BuildConfig"
@@ -932,6 +958,9 @@ public final class TermuxConstants {
 
         /** Termux app FileViewReceiverActivity class name */
         public static final String FILE_VIEW_RECEIVER_ACTIVITY_CLASS_NAME = TERMUX_PACKAGE_NAME + ".app.api.file.FileViewReceiverActivity"; // Default: "com.termux.app.api.file.FileViewReceiverActivity"
+
+        /** Termux app BrowserCommandReceiver class name */
+        public static final String BROWSER_COMMAND_RECEIVER_CLASS_NAME = TERMUX_PACKAGE_NAME + ".app.browser.BrowserCommandReceiver";
 
 
         /** Termux app core activity name. */

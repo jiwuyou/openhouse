@@ -9,21 +9,28 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.ContextMenu;
 import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
+import android.webkit.WebView;
+import com.google.android.material.button.MaterialButton;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.termux.R;
@@ -41,7 +48,13 @@ import com.termux.shared.termux.TermuxConstants;
 import com.termux.shared.termux.TermuxConstants.TERMUX_APP.TERMUX_ACTIVITY;
 import com.termux.app.activities.HelpActivity;
 import com.termux.app.activities.SettingsActivity;
+import com.termux.app.browser.TermuxBrowserController;
+import com.termux.app.browser.TermuxBrowserWorkspace;
+import com.termux.app.config.ModeConfig;
+import com.termux.app.config.ModeConfigManager;
 import com.termux.shared.termux.crash.TermuxCrashUtils;
+import com.termux.shared.termux.file.TermuxFileUtils;
+import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.settings.preferences.TermuxAppSharedPreferences;
 import com.termux.app.terminal.TermuxSessionsListViewController;
 import com.termux.app.terminal.io.TerminalToolbarViewPager;
@@ -65,6 +78,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.viewpager.widget.ViewPager;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
@@ -174,6 +188,24 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private int mNavBarHeight;
 
     private float mTerminalToolbarDefaultHeight;
+    private TermuxBrowserController mControlBrowserController;
+    private TermuxBrowserController mWorkspaceBrowserController;
+    private String mCurrentMode;
+    private View mGlobalModeBarView;
+    private View mGlobalModeHeaderView;
+    private View mGlobalModeButtonRowView;
+    private View mGlobalStatusBarView;
+    private View mDevSurfaceSwitcherView;
+    private TextView mGlobalAppTitleView;
+    private TextView mModeTitleView;
+    private TextView mModeSummaryView;
+    private MaterialButton mDailyModeButton;
+    private MaterialButton mDevModeButton;
+    private MaterialButton mAutomationModeButton;
+    private MaterialButton mDevSurfacePreviewButton;
+    private MaterialButton mDevSurfaceTerminalButton;
+    private MaterialButton mDevSurfaceControllerButton;
+    @NonNull private String mDevActiveSurface = "preview";
 
 
     private static final int CONTEXT_MENU_SELECT_URL_ID = 0;
@@ -225,6 +257,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
 
         setMargins();
+        TermuxBrowserWorkspace.ensureRuntimeSetup(this);
+        initModeConfig(getIntent());
 
         mTermuxActivityRootView = findViewById(R.id.activity_termux_root_view);
         mTermuxActivityRootView.setActivity(this);
@@ -242,6 +276,11 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
 
         setTermuxTerminalViewAndClients();
+        setTermuxBrowserView();
+        restoreBrowserState(savedInstanceState);
+        setModeSwitcherView();
+        setDevSurfaceSwitcherView();
+        applyModeUi();
 
         setTerminalToolbarView(savedInstanceState);
 
@@ -315,11 +354,35 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         if (mTermuxTerminalViewClient != null)
             mTermuxTerminalViewClient.onResume();
 
+        TermuxBrowserWorkspace.ensureRuntimeSetup(this);
+
+        if (mControlBrowserController != null)
+            mControlBrowserController.onResume();
+        if (mWorkspaceBrowserController != null)
+            mWorkspaceBrowserController.onResume();
+
         // Check if a crash happened on last run of the app or if a plugin crashed and show a
         // notification with the crash details if it did
         TermuxCrashUtils.notifyAppCrashFromCrashLogFile(this, LOG_TAG);
 
         mIsOnResumeAfterOnCreate = false;
+    }
+
+    @Override
+    protected void onPause() {
+        if (mControlBrowserController != null)
+            mControlBrowserController.onPause();
+        if (mWorkspaceBrowserController != null)
+            mWorkspaceBrowserController.onPause();
+
+        super.onPause();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        updateModeFromIntent(intent);
     }
 
     @Override
@@ -363,6 +426,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         } catch (Exception e) {
             // ignore.
         }
+
+        destroyBrowserControllers();
     }
 
     @Override
@@ -371,12 +436,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         super.onSaveInstanceState(savedInstanceState);
         saveTerminalToolbarTextInput(savedInstanceState);
+        if (mControlBrowserController != null) {
+            mControlBrowserController.saveInstanceState(savedInstanceState);
+        }
+        if (mWorkspaceBrowserController != null) {
+            mWorkspaceBrowserController.saveInstanceState(savedInstanceState);
+        }
         savedInstanceState.putBoolean(ARG_ACTIVITY_RECREATED, true);
     }
-
-
-
-
 
     /**
      * Part of the {@link ServiceConnection} interface. The service is bound with
@@ -394,20 +461,16 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         final Intent intent = getIntent();
         setIntent(null);
 
-        if (mTermuxService.isTermuxSessionsEmpty()) {
+        if (needsBootstrapSetup()) {
             if (mIsVisible) {
-                TermuxInstaller.setupBootstrapIfNeeded(TermuxActivity.this, () -> {
-                    if (mTermuxService == null) return; // Activity might have been destroyed.
-                    try {
-                        boolean launchFailsafe = false;
-                        if (intent != null && intent.getExtras() != null) {
-                            launchFailsafe = intent.getExtras().getBoolean(TERMUX_ACTIVITY.EXTRA_FAILSAFE_SESSION, false);
-                        }
-                        mTermuxTerminalSessionActivityClient.addNewSession(launchFailsafe, null);
-                    } catch (WindowManager.BadTokenException e) {
-                        // Activity finished - ignore.
-                    }
-                });
+                clearStaleTermuxSessionsForBootstrap();
+                ensureBootstrapAndLaunchSession(intent);
+            } else {
+                finishActivityIfNotFinishing();
+            }
+        } else if (mTermuxService.isTermuxSessionsEmpty()) {
+            if (mIsVisible) {
+                ensureBootstrapAndLaunchSession(intent);
             } else {
                 // The service connected while not in foreground - just bail out.
                 finishActivityIfNotFinishing();
@@ -427,6 +490,37 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         // Update the {@link TerminalSession} and {@link TerminalEmulator} clients.
         mTermuxService.setTermuxTerminalSessionClient(mTermuxTerminalSessionActivityClient);
+    }
+
+    private boolean needsBootstrapSetup() {
+        return TermuxFileUtils.isTermuxPrefixDirectoryAccessible(false, false) != null ||
+            TermuxFileUtils.isTermuxPrefixDirectoryEmpty();
+    }
+
+    private void clearStaleTermuxSessionsForBootstrap() {
+        if (mTermuxService == null) return;
+
+        ArrayList<TermuxSession> staleSessions = new ArrayList<>(mTermuxService.getTermuxSessions());
+        for (TermuxSession termuxSession : staleSessions) {
+            if (termuxSession == null) continue;
+            termuxSession.killIfExecuting(this, false);
+        }
+        mTermuxService.getTermuxSessions().clear();
+    }
+
+    private void ensureBootstrapAndLaunchSession(@Nullable Intent intent) {
+        TermuxInstaller.setupBootstrapIfNeeded(TermuxActivity.this, () -> {
+            if (mTermuxService == null) return;
+            try {
+                boolean launchFailsafe = false;
+                if (intent != null && intent.getExtras() != null) {
+                    launchFailsafe = intent.getExtras().getBoolean(TERMUX_ACTIVITY.EXTRA_FAILSAFE_SESSION, false);
+                }
+                mTermuxTerminalSessionActivityClient.addNewSession(launchFailsafe, null);
+            } catch (WindowManager.BadTokenException e) {
+                // Activity finished - ignore.
+            }
+        });
     }
 
     @Override
@@ -497,6 +591,428 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             mTermuxTerminalSessionActivityClient.onCreate();
     }
 
+    private void setTermuxBrowserView() {
+        destroyBrowserControllers();
+
+        LinearLayout controlContainer = findViewById(R.id.control_browser_container);
+        LinearLayout workspaceContainer = findViewById(R.id.workspace_browser_container);
+        LayoutInflater inflater = LayoutInflater.from(this);
+
+        controlContainer.removeAllViews();
+        workspaceContainer.removeAllViews();
+
+        View controlPanel = inflater.inflate(R.layout.view_browser_panel, controlContainer, false);
+        View workspacePanel = inflater.inflate(R.layout.view_browser_panel, workspaceContainer, false);
+        controlContainer.addView(controlPanel);
+        workspaceContainer.addView(workspacePanel);
+
+        mControlBrowserController = buildBrowserController("control_webview", controlPanel);
+        mWorkspaceBrowserController = buildBrowserController("workspace_webview", workspacePanel);
+    }
+
+    private void restoreBrowserState(@Nullable Bundle savedInstanceState) {
+        if (savedInstanceState == null) return;
+
+        if (mControlBrowserController != null) {
+            mControlBrowserController.restoreInstanceState(savedInstanceState);
+        }
+        if (mWorkspaceBrowserController != null) {
+            mWorkspaceBrowserController.restoreInstanceState(savedInstanceState);
+        }
+    }
+
+    private void initModeConfig(@Nullable Intent intent) {
+        ModeConfig modeConfig = ModeConfigManager.getModeConfig();
+        mCurrentMode = modeConfig.getDefaultMode();
+        updateModeFromIntent(intent);
+    }
+
+    private void updateModeFromIntent(@Nullable Intent intent) {
+        if (intent == null) return;
+
+        String requestedMode = intent.getStringExtra(TermuxBrowserWorkspace.EXTRA_TARGET_MODE);
+        if (requestedMode == null || requestedMode.trim().isEmpty()) return;
+
+        ModeConfig modeConfig = ModeConfigManager.getModeConfig();
+        if (!modeConfig.isModeEnabled(requestedMode)) return;
+        if (requestedMode.equals(mCurrentMode)) return;
+
+        mCurrentMode = requestedMode;
+        if (findViewById(R.id.control_browser_container) != null) {
+            setTermuxBrowserView();
+        }
+        applyModeUi();
+    }
+
+    private void applyModeUi() {
+        ModeConfig modeConfig = ModeConfigManager.getModeConfig();
+        String layout = modeConfig.getLayout(mCurrentMode);
+        String browserRuntime = modeConfig.getBrowserRuntime(mCurrentMode);
+
+        View workspaceBrowserContainer = findViewById(R.id.workspace_browser_container);
+        View terminalHostContainer = findViewById(R.id.activity_termux_root_relative_layout);
+        View controlBrowserContainer = findViewById(R.id.control_browser_container);
+        TextView statusLeftView = findViewById(R.id.status_left_view);
+        TextView statusRightView = findViewById(R.id.status_right_view);
+
+        boolean devLayout = "three_panel".equals(layout);
+        boolean dailyLayout = "single_webview".equals(layout);
+        boolean headlessLayout = "none".equals(layout) || "headless".equals(browserRuntime);
+
+        if (devLayout) {
+            applyDevSurfaceVisibility(workspaceBrowserContainer, terminalHostContainer, controlBrowserContainer);
+        } else {
+            if (workspaceBrowserContainer != null) {
+                workspaceBrowserContainer.setVisibility(View.GONE);
+            }
+            if (terminalHostContainer != null) {
+                terminalHostContainer.setVisibility(headlessLayout ? View.GONE : View.GONE);
+            }
+            if (controlBrowserContainer != null) {
+                controlBrowserContainer.setVisibility(dailyLayout ? View.VISIBLE : View.GONE);
+            }
+            updateDevSurfaceSwitcherUi(false);
+        }
+
+        if (statusLeftView != null) {
+            statusLeftView.setText(getString(R.string.status_left_default));
+        }
+        if (statusRightView != null) {
+            statusRightView.setText(getModeStatusRes(mCurrentMode));
+        }
+
+        applyTerminalToolbarForMode();
+        updateModeSwitcherUi();
+    }
+
+    private void applyDevSurfaceVisibility(@Nullable View workspaceBrowserContainer,
+                                           @Nullable View terminalHostContainer,
+                                           @Nullable View controlBrowserContainer) {
+        if (workspaceBrowserContainer != null) {
+            workspaceBrowserContainer.setVisibility("preview".equals(mDevActiveSurface) ? View.VISIBLE : View.INVISIBLE);
+        }
+        if (terminalHostContainer != null) {
+            terminalHostContainer.setVisibility("terminal".equals(mDevActiveSurface) ? View.VISIBLE : View.INVISIBLE);
+        }
+        if (controlBrowserContainer != null) {
+            controlBrowserContainer.setVisibility("controller".equals(mDevActiveSurface) ? View.VISIBLE : View.INVISIBLE);
+        }
+        applyTerminalSurfaceOffset();
+        updateDevSurfaceSwitcherUi(true);
+    }
+
+    private void applyTerminalSurfaceOffset() {
+        DrawerLayout drawerLayout = getDrawer();
+        View terminalSurfaceTopInsetView = findViewById(R.id.terminal_surface_top_inset);
+        int topInset = ("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface)) ? dp(52) : 0;
+
+        if (drawerLayout != null) {
+            drawerLayout.setPadding(0, topInset, 0, 0);
+        }
+
+        if (terminalSurfaceTopInsetView != null) {
+            ViewGroup.LayoutParams layoutParams = terminalSurfaceTopInsetView.getLayoutParams();
+            if (layoutParams.height != topInset) {
+                layoutParams.height = topInset;
+                terminalSurfaceTopInsetView.setLayoutParams(layoutParams);
+            }
+            terminalSurfaceTopInsetView.setVisibility(topInset > 0 ? View.VISIBLE : View.GONE);
+        }
+
+        if (mTerminalView != null) {
+            try {
+                mTerminalView.getClass()
+                    .getMethod("setTerminalContentTopOffset", Integer.TYPE)
+                    .invoke(mTerminalView, topInset);
+            } catch (NoSuchMethodException e) {
+                mTerminalView.requestLayout();
+                mTerminalView.invalidate();
+            } catch (Exception e) {
+                Logger.logStackTraceWithMessage(LOG_TAG, "Failed to apply terminal surface offset", e);
+            }
+        }
+    }
+
+    private void applyTerminalToolbarForMode() {
+        final ViewPager terminalToolbarViewPager = getTerminalToolbarViewPager();
+        if (terminalToolbarViewPager == null || mPreferences == null) return;
+
+        boolean visible = mPreferences.shouldShowTerminalToolbar() &&
+            (!"dev".equals(mCurrentMode) || "terminal".equals(mDevActiveSurface));
+
+        terminalToolbarViewPager.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    private void setModeSwitcherView() {
+        mGlobalModeBarView = findViewById(R.id.global_mode_bar);
+        mGlobalModeButtonRowView = findViewById(R.id.global_mode_button_row);
+        mGlobalStatusBarView = findViewById(R.id.global_status_bar);
+        mGlobalAppTitleView = findViewById(R.id.global_app_title_view);
+        if (mGlobalAppTitleView != null && mGlobalAppTitleView.getParent() instanceof View &&
+            ((View) mGlobalAppTitleView.getParent()).getParent() instanceof View) {
+            mGlobalModeHeaderView = (View) ((View) mGlobalAppTitleView.getParent()).getParent();
+        }
+        mModeTitleView = findViewById(R.id.mode_title_view);
+        mModeSummaryView = findViewById(R.id.mode_summary_view);
+        mDailyModeButton = findViewById(R.id.mode_daily_button);
+        mDevModeButton = findViewById(R.id.mode_dev_button);
+        mAutomationModeButton = findViewById(R.id.mode_automation_button);
+
+        mDailyModeButton.setOnClickListener(v -> switchMode("daily"));
+        mDevModeButton.setOnClickListener(v -> switchMode("dev"));
+        mAutomationModeButton.setOnClickListener(v -> switchMode("automation"));
+
+        updateModeSwitcherUi();
+    }
+
+    private void setDevSurfaceSwitcherView() {
+        mDevSurfaceSwitcherView = findViewById(R.id.dev_surface_switcher);
+        mDevSurfacePreviewButton = findViewById(R.id.dev_surface_preview_button);
+        mDevSurfaceTerminalButton = findViewById(R.id.dev_surface_terminal_button);
+        mDevSurfaceControllerButton = findViewById(R.id.dev_surface_controller_button);
+
+        if (mDevSurfacePreviewButton != null) {
+            mDevSurfacePreviewButton.setOnClickListener(v -> setActiveDevSurface("preview"));
+        }
+        if (mDevSurfaceTerminalButton != null) {
+            mDevSurfaceTerminalButton.setOnClickListener(v -> setActiveDevSurface("terminal"));
+        }
+        if (mDevSurfaceControllerButton != null) {
+            mDevSurfaceControllerButton.setOnClickListener(v -> setActiveDevSurface("controller"));
+        }
+
+        updateDevSurfaceSwitcherUi("dev".equals(mCurrentMode));
+    }
+
+    private void setActiveDevSurface(@NonNull String surface) {
+        if (!"dev".equals(mCurrentMode)) return;
+        if (surface.equals(mDevActiveSurface)) return;
+
+        mDevActiveSurface = surface;
+        applyModeUi();
+    }
+
+    private void updateDevSurfaceSwitcherUi(boolean visible) {
+        if (mDevSurfaceSwitcherView != null) {
+            mDevSurfaceSwitcherView.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+
+        updateDevSurfaceButtonState(mDevSurfacePreviewButton, "preview".equals(mDevActiveSurface));
+        updateDevSurfaceButtonState(mDevSurfaceTerminalButton, "terminal".equals(mDevActiveSurface));
+        updateDevSurfaceButtonState(mDevSurfaceControllerButton, "controller".equals(mDevActiveSurface));
+    }
+
+    private void updateDevSurfaceButtonState(@Nullable MaterialButton button, boolean selected) {
+        if (button == null) return;
+
+        button.setBackgroundTintList(ColorStateList.valueOf(
+            Color.parseColor(selected ? "#2563EB" : "#1F2937")
+        ));
+        button.setTextColor(Color.parseColor(selected ? "#FFFFFF" : "#D1D5DB"));
+    }
+
+    private void switchMode(@NonNull String mode) {
+        ModeConfig modeConfig = ModeConfigManager.getModeConfig();
+        if (!modeConfig.isModeEnabled(mode)) {
+            showToast("Mode disabled: " + mode, true);
+            return;
+        }
+        if (mode.equals(mCurrentMode)) return;
+
+        mCurrentMode = mode;
+        setTermuxBrowserView();
+        applyModeUi();
+    }
+
+    private void updateModeSwitcherUi() {
+        if (mModeTitleView == null || mModeSummaryView == null ||
+            mDailyModeButton == null || mDevModeButton == null || mAutomationModeButton == null) {
+            return;
+        }
+
+        ModeConfig modeConfig = ModeConfigManager.getModeConfig();
+        mDailyModeButton.setEnabled(modeConfig.isModeEnabled("daily"));
+        mDevModeButton.setEnabled(modeConfig.isModeEnabled("dev"));
+        mAutomationModeButton.setEnabled(modeConfig.isModeEnabled("automation"));
+
+        mModeTitleView.setText(getModeTitleRes(mCurrentMode));
+        mModeSummaryView.setText(getModeSummaryRes(mCurrentMode));
+
+        setModeButtonState(mDailyModeButton, "daily".equals(mCurrentMode));
+        setModeButtonState(mDevModeButton, "dev".equals(mCurrentMode));
+        setModeButtonState(mAutomationModeButton, "automation".equals(mCurrentMode));
+        applyModeSwitcherChrome();
+    }
+
+    private void setModeButtonState(@NonNull MaterialButton button, boolean selected) {
+        int backgroundColor = Color.parseColor(selected ? "#2563EB" : "#344054");
+        int textColor = Color.parseColor(selected ? "#FFFFFF" : "#D0D5DD");
+        button.setAlpha(button.isEnabled() ? 1f : 0.45f);
+        button.setBackgroundTintList(ColorStateList.valueOf(backgroundColor));
+        button.setTextColor(textColor);
+    }
+
+    private void applyModeSwitcherChrome() {
+        boolean daily = "daily".equals(mCurrentMode);
+
+        if (mGlobalModeBarView != null) {
+            mGlobalModeBarView.setVisibility(daily ? View.GONE : View.VISIBLE);
+            mGlobalModeBarView.setPadding(dp(6), dp(4), dp(6), dp(4));
+        }
+
+        if (daily) {
+            if (mGlobalStatusBarView != null) {
+                mGlobalStatusBarView.setVisibility(View.GONE);
+            }
+            return;
+        }
+
+        if (mGlobalModeHeaderView != null) {
+            mGlobalModeHeaderView.setVisibility(View.GONE);
+        }
+
+        if (mGlobalAppTitleView != null) {
+            mGlobalAppTitleView.setVisibility(View.GONE);
+        }
+        if (mModeTitleView != null) {
+            mModeTitleView.setVisibility(View.GONE);
+        }
+        if (mModeSummaryView != null) {
+            mModeSummaryView.setVisibility(View.GONE);
+        }
+
+        if (mGlobalModeButtonRowView != null &&
+            mGlobalModeButtonRowView.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) mGlobalModeButtonRowView.getLayoutParams();
+            params.topMargin = 0;
+            mGlobalModeButtonRowView.setLayoutParams(params);
+        }
+
+        if (mGlobalModeButtonRowView instanceof LinearLayout &&
+            ((LinearLayout) mGlobalModeButtonRowView).getChildCount() > 0 &&
+            ((LinearLayout) mGlobalModeButtonRowView).getChildAt(0) instanceof LinearLayout) {
+            ((LinearLayout) ((LinearLayout) mGlobalModeButtonRowView).getChildAt(0))
+                .setGravity(Gravity.CENTER_HORIZONTAL);
+        }
+
+        compactModeSwitcherButton(mDailyModeButton);
+        compactModeSwitcherButton(mDevModeButton);
+        compactModeSwitcherButton(mAutomationModeButton);
+
+        if (mGlobalStatusBarView != null) {
+            mGlobalStatusBarView.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void compactModeSwitcherButton(@Nullable MaterialButton button) {
+        if (button == null) return;
+
+        button.setInsetTop(0);
+        button.setInsetBottom(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setTextSize(10f);
+        button.setPadding(0, 0, 0, 0);
+
+        if (button.getLayoutParams() instanceof LinearLayout.LayoutParams) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) button.getLayoutParams();
+            params.width = dp(84);
+            params.weight = 0f;
+            params.height = dp(30);
+            button.setLayoutParams(params);
+        }
+    }
+
+    private int getModeTitleRes(@NonNull String mode) {
+        switch (mode) {
+            case "dev":
+                return R.string.mode_title_dev;
+            case "automation":
+                return R.string.mode_title_automation;
+            case "daily":
+            default:
+                return R.string.mode_title_daily;
+        }
+    }
+
+    private int getModeSummaryRes(@NonNull String mode) {
+        switch (mode) {
+            case "dev":
+                return R.string.mode_summary_dev;
+            case "automation":
+                return R.string.mode_summary_automation;
+            case "daily":
+            default:
+                return R.string.mode_summary_daily;
+        }
+    }
+
+    private int getModeStatusRes(@NonNull String mode) {
+        switch (mode) {
+            case "dev":
+                return R.string.status_right_dev;
+            case "automation":
+                return R.string.status_right_automation;
+            case "daily":
+            default:
+                return R.string.status_right_daily;
+        }
+    }
+
+    private TermuxBrowserController buildBrowserController(@NonNull String targetContext,
+                                                           @NonNull View panelRoot) {
+        TextView browserPanelTitle = panelRoot.findViewById(R.id.browser_panel_title);
+        TextView browserStatusView = panelRoot.findViewById(R.id.browser_status_view);
+
+        browserPanelTitle.setText(getString(getBrowserPanelTitleRes(targetContext)));
+        browserStatusView.setText(getString(getBrowserPanelStatusRes(targetContext)));
+
+        boolean interactiveChrome = !"workspace_webview".equals(targetContext);
+        boolean compactChrome = "dev".equals(mCurrentMode) && "control_webview".equals(targetContext);
+        boolean minimalChrome = "daily".equals(mCurrentMode) && "control_webview".equals(targetContext);
+
+        return new TermuxBrowserController(this, mCurrentMode, targetContext, panelRoot, interactiveChrome, compactChrome, minimalChrome);
+    }
+
+    public void requestModeSwitch(@NonNull String mode) {
+        switchMode(mode);
+    }
+
+    private int getBrowserPanelTitleRes(@NonNull String targetContext) {
+        if ("workspace_webview".equals(targetContext)) {
+            return R.string.browser_panel_title_preview;
+        }
+
+        if ("dev".equals(mCurrentMode)) {
+            return R.string.browser_panel_title_controller;
+        }
+
+        return R.string.browser_panel_title_daily;
+    }
+
+    private int getBrowserPanelStatusRes(@NonNull String targetContext) {
+        if ("workspace_webview".equals(targetContext)) {
+            return R.string.browser_panel_status_dev_preview;
+        }
+
+        if ("dev".equals(mCurrentMode)) {
+            return R.string.browser_panel_status_dev_controller;
+        }
+
+        return R.string.browser_panel_status_daily;
+    }
+
+    private void destroyBrowserControllers() {
+        if (mControlBrowserController != null) {
+            mControlBrowserController.onDestroy();
+            mControlBrowserController = null;
+        }
+        if (mWorkspaceBrowserController != null) {
+            mWorkspaceBrowserController.onDestroy();
+            mWorkspaceBrowserController = null;
+        }
+    }
+
     private void setTermuxSessionsListView() {
         ListView termuxSessionsListView = findViewById(R.id.terminal_sessions_list);
         mTermuxSessionListViewController = new TermuxSessionsListViewController(this, mTermuxService.getTermuxSessions());
@@ -525,6 +1041,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         terminalToolbarViewPager.setAdapter(new TerminalToolbarViewPager.PageAdapter(this, savedTextInput));
         terminalToolbarViewPager.addOnPageChangeListener(new TerminalToolbarViewPager.OnPageChangeListener(this, terminalToolbarViewPager));
+        applyTerminalToolbarForMode();
     }
 
     private void setTerminalToolbarHeight() {
@@ -544,7 +1061,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         final boolean showNow = mPreferences.toogleShowTerminalToolbar();
         Logger.showToast(this, (showNow ? getString(R.string.msg_enabling_terminal_toolbar) : getString(R.string.msg_disabling_terminal_toolbar)), true);
-        terminalToolbarViewPager.setVisibility(showNow ? View.VISIBLE : View.GONE);
+        applyTerminalToolbarForMode();
         if (showNow && isTerminalToolbarTextInputViewSelected()) {
             // Focus the text input view if just revealed.
             findViewById(R.id.terminal_toolbar_text_input).requestFocus();
@@ -603,6 +1120,19 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     public void onBackPressed() {
         if (getDrawer().isDrawerOpen(Gravity.LEFT)) {
             getDrawer().closeDrawers();
+        } else if ("dev".equals(mCurrentMode)) {
+            if ("preview".equals(mDevActiveSurface) &&
+                mWorkspaceBrowserController != null &&
+                mWorkspaceBrowserController.handleBackPressed()) {
+                return;
+            }
+            if ("controller".equals(mDevActiveSurface) &&
+                mControlBrowserController != null &&
+                mControlBrowserController.handleBackPressed()) {
+                return;
+            }
+        } else if (mControlBrowserController != null && mControlBrowserController.handleBackPressed()) {
+            return;
         } else {
             finishActivityIfNotFinishing();
         }
@@ -791,6 +1321,13 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        if (mControlBrowserController != null && mControlBrowserController.onActivityResult(requestCode, resultCode, data)) {
+            return;
+        }
+        if (mWorkspaceBrowserController != null && mWorkspaceBrowserController.onActivityResult(requestCode, resultCode, data)) {
+            return;
+        }
+
         super.onActivityResult(requestCode, resultCode, data);
         Logger.logVerbose(LOG_TAG, "onActivityResult: requestCode: " + requestCode + ", resultCode: "  + resultCode + ", data: "  + IntentUtils.getIntentString(data));
         if (requestCode == PermissionUtils.REQUEST_GRANT_STORAGE_PERMISSION) {
@@ -842,6 +1379,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         return (ViewPager) findViewById(R.id.terminal_toolbar_view_pager);
     }
 
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
     public float getTerminalToolbarDefaultHeight() {
         return mTerminalToolbarDefaultHeight;
     }
@@ -879,6 +1420,14 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public TerminalView getTerminalView() {
         return mTerminalView;
+    }
+
+    public TermuxBrowserController getControlBrowserController() {
+        return mControlBrowserController;
+    }
+
+    public TermuxBrowserController getWorkspaceBrowserController() {
+        return mWorkspaceBrowserController;
     }
 
     public TermuxTerminalViewClient getTermuxTerminalViewClient() {

@@ -255,8 +255,12 @@ public class TermuxFileUtils {
      * or validating permissions failed, otherwise {@code null}.
      */
     public static Error isTermuxFilesDirectoryAccessible(@NonNull final Context context, boolean createDirectoryIfMissing, boolean setMissingPermissions) {
-        if (createDirectoryIfMissing)
+        if (createDirectoryIfMissing) {
             context.getFilesDir();
+            if (!FileUtils.directoryFileExists(TermuxConstants.TERMUX_FILES_DIR_PATH, true)) {
+                FileUtils.createDirectoryFile(TermuxConstants.TERMUX_FILES_DIR_PATH);
+            }
+        }
 
         if (!FileUtils.directoryFileExists(TermuxConstants.TERMUX_FILES_DIR_PATH, true))
             return FileUtilsErrno.ERRNO_FILE_NOT_FOUND_AT_PATH.getError("termux files directory", TermuxConstants.TERMUX_FILES_DIR_PATH);
@@ -340,6 +344,18 @@ public class TermuxFileUtils {
         if (!FileUtilsErrno.ERRNO_NON_EMPTY_DIRECTORY_FILE.equalsErrorTypeAndCode(error))
             Logger.logErrorExtended(LOG_TAG, "Failed to check if termux prefix directory is empty:\n" + error.getErrorLogString());
         return false;
+    }
+
+    /**
+     * The prefix is considered usable only if the directory itself is accessible and at least one
+     * core shell binary exists. This avoids treating browser helper scripts written into an empty
+     * prefix as a valid bootstrap installation.
+     */
+    public static boolean isTermuxPrefixDirectoryUsable() {
+        if (isTermuxPrefixDirectoryAccessible(false, false) != null) return false;
+
+        return FileUtils.fileExists(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + "/login", true) ||
+            FileUtils.fileExists(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + "/sh", true);
     }
 
     /**

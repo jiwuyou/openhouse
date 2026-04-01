@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "default_mode": "daily",
+  "modes": {
+    "daily": {
+      "enabled": true,
+      "browser_runtime": "visible",
+      "layout": "single_webview",
+      "agent_panel": "control_webview",
+      "terminal_panel": false,
+      "workspace_webview": false,
+      "allow_background_automation": true,
+      "default_session_mode": "shared",
+      "default_target_context": "control_webview",
+      "default_result_delivery": [
+        "notification",
+        "control_webview"
+      ]
+    },
+    "dev": {
+      "enabled": true,
+      "browser_runtime": "visible",
+      "layout": "three_panel",
+      "agent_panel": "control_webview",
+      "terminal_panel": true,
+      "workspace_webview": true,
+      "allow_background_automation": true,
+      "default_session_mode": "shared",
+      "default_target_context": "workspace_webview",
+      "default_result_delivery": [
+        "workspace_webview",
+        "terminal"
+      ]
+    },
+    "automation": {
+      "enabled": true,
+      "browser_runtime": "headless",
+      "layout": "none",
+      "agent_panel": "none",
+      "terminal_panel": false,
+      "workspace_webview": false,
+      "allow_background_automation": true,
+      "default_session_mode": "isolated",
+      "default_target_context": "headless",
+      "default_result_delivery": [
+        "terminal",
+        "notification"
+      ]
+    }
+  },
+  "session_profiles": {
+    "daily_shared": {
+      "cookie_scope": "daily",
+      "storage_scope": "daily",
+      "login_state": "shared"
+    },
+    "dev_shared": {
+      "cookie_scope": "dev",
+      "storage_scope": "dev",
+      "login_state": "shared"
+    },
+    "automation_isolated": {
+      "cookie_scope": "isolated",
+      "storage_scope": "isolated",
+      "login_state": "isolated"
+    }
+  },
+  "task_defaults": {
+    "open_url": {
+      "mode": "dev",
+      "session_mode": "shared",
+      "target_context": "workspace_webview",
+      "result_delivery": [
+        "workspace_webview",
+        "terminal"
+      ]
+    },
+    "daily_background_job": {
+      "mode": "automation",
+      "session_mode": "isolated",
+      "target_context": "headless",
+      "result_delivery": [
+        "notification"
+      ]
+    },
+    "daily_background_job_shared_login": {
+      "mode": "automation",
+      "session_mode": "shared",
+      "share_from": "daily",
+      "target_context": "headless",
+      "result_delivery": [
+        "notification",
+        "control_webview"
+      ]
+    }
+  },
+  "allowed_values": {
+    "mode": [
+      "daily",
+      "dev",
+      "automation"
+    ],
+    "browser_runtime": [
+      "visible",
+      "headless"
+    ],
+    "layout": [
+      "single_webview",
+      "three_panel",
+      "none"
+    ],
+    "session_mode": [
+      "isolated",
+      "shared"
+    ],
+    "target_context": [
+      "control_webview",
+      "workspace_webview",
+      "headless"
+    ],
+    "result_delivery": [
+      "control_webview",
+      "workspace_webview",
+      "terminal",
+      "notification"
+    ]
+  }
+}
