@@ -1667,8 +1667,8 @@ public final class TermuxBrowserController {
 
         try {
             File workspaceRoot = new File(TermuxConstants.TERMUX_APP.TERMUX_BROWSER_WORKSPACE_DIR_PATH);
-            String workspaceCanonical = workspaceRoot.getCanonicalPath();
-            String targetCanonical = targetFile.getCanonicalPath();
+            String workspaceCanonical = normalizeWorkspaceAlias(workspaceRoot.getCanonicalPath());
+            String targetCanonical = normalizeWorkspaceAlias(targetFile.getCanonicalPath());
             if (!(targetCanonical.equals(workspaceCanonical) || targetCanonical.startsWith(workspaceCanonical + File.separator))) {
                 throw new IllegalArgumentException("Screenshot output must stay inside the Termux workspace.");
             }
@@ -1678,6 +1678,16 @@ public final class TermuxBrowserController {
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to resolve screenshot output path.", e);
         }
+    }
+
+    @NonNull
+    private String normalizeWorkspaceAlias(@NonNull String path) {
+        String dataPathPrefix = "/data/data/" + TermuxConstants.TERMUX_PACKAGE_NAME + "/";
+        String userPathPrefix = "/data/user/0/" + TermuxConstants.TERMUX_PACKAGE_NAME + "/";
+        if (path.startsWith(dataPathPrefix)) {
+            return userPathPrefix + path.substring(dataPathPrefix.length());
+        }
+        return path;
     }
 
     @NonNull
