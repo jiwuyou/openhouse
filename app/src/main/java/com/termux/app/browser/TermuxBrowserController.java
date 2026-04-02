@@ -408,6 +408,9 @@ public final class TermuxBrowserController {
 
         mBrowserToolbar.getDisplay().setHint(mActivity.getString(R.string.browser_url_hint));
         mBrowserToolbar.getDisplay().setIndicators(Collections.emptyList());
+        if (mMinimalChrome) {
+            applyDailyToolbarStyle();
+        }
 
         mBackAction = new BrowserToolbar.TwoStateButton(
             ContextCompat.getDrawable(mActivity, R.drawable.browser_nav_back),
@@ -574,6 +577,16 @@ public final class TermuxBrowserController {
             button.getLayoutParams().height = dp(32);
             button.setLayoutParams(button.getLayoutParams());
         }
+    }
+
+    private void applyDailyToolbarStyle() {
+        if (mBrowserToolbar == null) return;
+
+        mBrowserToolbar.setBackgroundColor(Color.parseColor("#162033"));
+        mBrowserToolbar.setElevation(dp(4));
+        mBrowserToolbar.setPadding(dp(6), dp(6), dp(6), dp(4));
+        mBrowserToolbar.getDisplay().setUrlBackground(createRoundedBackground("#1E293B", "#475569", 16));
+        mBrowserToolbar.getEdit().setUrlBackground(createRoundedBackground("#1E293B", "#60A5FA", 16));
     }
 
     private void applyFixedHeight(@Nullable View view, int heightDp) {

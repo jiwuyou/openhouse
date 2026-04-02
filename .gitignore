@@ -37,3 +37,12 @@ local.properties
 .swp
 ehthumbs.db
 Thumbs.db
+
+# Local debug artifacts
+hs_err_pid*.log
+replay_pid*.log
+after_terminal_surface_fixed*.png
+post_bootstrap_ui.png
+start_after_patch.png
+terminal_offset_visible.png
+termux_*.png
