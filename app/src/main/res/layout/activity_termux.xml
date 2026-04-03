@@ -272,6 +272,60 @@
                 android:minWidth="88dp"
                 android:text="@string/dev_surface_controller" />
         </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/dev_terminal_actions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginTop="84dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="20dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/dev_terminal_action_buttons"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:background="#D90F172A"
+                android:elevation="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="4dp"
+                android:visibility="gone">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/dev_terminal_sessions_button"
+                    style="?android:attr/buttonBarButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:minWidth="72dp"
+                    android:text="@string/dev_terminal_sessions" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/dev_terminal_new_session_button"
+                    style="?android:attr/buttonBarButtonStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:minWidth="64dp"
+                    android:text="@string/dev_terminal_new_session" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/dev_terminal_toggle_button"
+                style="?android:attr/buttonBarButtonStyle"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:elevation="12dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:text="@string/dev_terminal_toggle" />
+        </LinearLayout>
     </FrameLayout>
 
     <LinearLayout

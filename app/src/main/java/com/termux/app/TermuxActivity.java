@@ -11,7 +11,9 @@ import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.view.ContextMenu;
@@ -20,9 +22,13 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewConfiguration;
+import android.view.ViewParent;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -80,6 +86,7 @@ import androidx.viewpager.widget.ViewPager;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * A terminal emulator activity.
@@ -205,6 +212,15 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private MaterialButton mDevSurfacePreviewButton;
     private MaterialButton mDevSurfaceTerminalButton;
     private MaterialButton mDevSurfaceControllerButton;
+    private View mDevTerminalActionsView;
+    private View mDevTerminalActionButtonsView;
+    private MaterialButton mDevTerminalSessionsButton;
+    private MaterialButton mDevTerminalNewSessionButton;
+    private MaterialButton mDevTerminalToggleButton;
+    private boolean mDevTerminalActionsExpanded;
+    private boolean mDevTerminalActionsPositionInitialized;
+    private float mDevTerminalActionsSavedX;
+    private float mDevTerminalActionsSavedY;
     @NonNull private String mDevActiveSurface = "preview";
 
 
@@ -223,6 +239,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     private static final String ARG_TERMINAL_TOOLBAR_TEXT_INPUT = "terminal_toolbar_text_input";
     private static final String ARG_ACTIVITY_RECREATED = "activity_recreated";
+    private static final String ARG_DEV_TERMINAL_ACTIONS_EXPANDED = "dev_terminal_actions_expanded";
+    private static final String ARG_DEV_TERMINAL_ACTIONS_POSITION_INITIALIZED = "dev_terminal_actions_position_initialized";
+    private static final String ARG_DEV_TERMINAL_ACTIONS_X = "dev_terminal_actions_x";
+    private static final String ARG_DEV_TERMINAL_ACTIONS_Y = "dev_terminal_actions_y";
 
     private static final String LOG_TAG = "TermuxActivity";
 
@@ -233,6 +253,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         if (savedInstanceState != null)
             mIsActivityRecreated = savedInstanceState.getBoolean(ARG_ACTIVITY_RECREATED, false);
+        if (savedInstanceState != null) {
+            mDevTerminalActionsExpanded = savedInstanceState.getBoolean(ARG_DEV_TERMINAL_ACTIONS_EXPANDED, false);
+            mDevTerminalActionsPositionInitialized = savedInstanceState.getBoolean(ARG_DEV_TERMINAL_ACTIONS_POSITION_INITIALIZED, false);
+            mDevTerminalActionsSavedX = savedInstanceState.getFloat(ARG_DEV_TERMINAL_ACTIONS_X, 0f);
+            mDevTerminalActionsSavedY = savedInstanceState.getFloat(ARG_DEV_TERMINAL_ACTIONS_Y, 0f);
+        }
 
         // Delete ReportInfo serialized object files from cache older than 14 days
         ReportActivity.deleteReportInfoFilesOlderThanXDays(this, 14, false);
@@ -280,9 +306,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         restoreBrowserState(savedInstanceState);
         setModeSwitcherView();
         setDevSurfaceSwitcherView();
-        applyModeUi();
-
         setTerminalToolbarView(savedInstanceState);
+        setDevTerminalActionsView();
+        applyModeUi();
 
         setSettingsButtonView();
 
@@ -443,6 +469,10 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
             mWorkspaceBrowserController.saveInstanceState(savedInstanceState);
         }
         savedInstanceState.putBoolean(ARG_ACTIVITY_RECREATED, true);
+        savedInstanceState.putBoolean(ARG_DEV_TERMINAL_ACTIONS_EXPANDED, mDevTerminalActionsExpanded);
+        savedInstanceState.putBoolean(ARG_DEV_TERMINAL_ACTIONS_POSITION_INITIALIZED, mDevTerminalActionsPositionInitialized);
+        savedInstanceState.putFloat(ARG_DEV_TERMINAL_ACTIONS_X, mDevTerminalActionsSavedX);
+        savedInstanceState.putFloat(ARG_DEV_TERMINAL_ACTIONS_Y, mDevTerminalActionsSavedY);
     }
 
     /**
@@ -490,6 +520,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         // Update the {@link TerminalSession} and {@link TerminalEmulator} clients.
         mTermuxService.setTermuxTerminalSessionClient(mTermuxTerminalSessionActivityClient);
+        updateDevTerminalActionsUi("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface));
     }
 
     private boolean needsBootstrapSetup() {
@@ -672,6 +703,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
                 controlBrowserContainer.setVisibility(dailyLayout ? View.VISIBLE : View.GONE);
             }
             updateDevSurfaceSwitcherUi(false);
+            updateDevTerminalActionsUi(false);
         }
 
         if (statusLeftView != null) {
@@ -688,6 +720,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     private void applyDevSurfaceVisibility(@Nullable View workspaceBrowserContainer,
                                            @Nullable View terminalHostContainer,
                                            @Nullable View controlBrowserContainer) {
+        bindDevTerminalActionsView(null);
+        applyDevBrowserContainerOffsets(workspaceBrowserContainer, controlBrowserContainer);
         if (workspaceBrowserContainer != null) {
             workspaceBrowserContainer.setVisibility("preview".equals(mDevActiveSurface) ? View.VISIBLE : View.INVISIBLE);
         }
@@ -699,6 +733,27 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
         applyTerminalSurfaceOffset();
         updateDevSurfaceSwitcherUi(true);
+        updateDevTerminalActionsUi("terminal".equals(mDevActiveSurface));
+    }
+
+    private void applyDevBrowserContainerOffsets(@Nullable View workspaceBrowserContainer,
+                                                 @Nullable View controlBrowserContainer) {
+        int devBrowserTopMargin = dp(72);
+        updateFrameLayoutMargins(workspaceBrowserContainer, devBrowserTopMargin, dp(3));
+        updateFrameLayoutMargins(controlBrowserContainer, devBrowserTopMargin, dp(3));
+    }
+
+    private void updateFrameLayoutMargins(@Nullable View view, int topMargin, int bottomMargin) {
+        if (view == null) return;
+        ViewGroup.LayoutParams rawLayoutParams = view.getLayoutParams();
+        if (!(rawLayoutParams instanceof FrameLayout.LayoutParams)) return;
+
+        FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) rawLayoutParams;
+        if (layoutParams.topMargin == topMargin && layoutParams.bottomMargin == bottomMargin) return;
+
+        layoutParams.topMargin = topMargin;
+        layoutParams.bottomMargin = bottomMargin;
+        view.setLayoutParams(layoutParams);
     }
 
     private void applyTerminalSurfaceOffset() {
@@ -737,6 +792,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         final ViewPager terminalToolbarViewPager = getTerminalToolbarViewPager();
         if (terminalToolbarViewPager == null || mPreferences == null) return;
 
+        setTerminalToolbarHeight();
         boolean visible = mPreferences.shouldShowTerminalToolbar() &&
             (!"dev".equals(mCurrentMode) || "terminal".equals(mDevActiveSurface));
 
@@ -784,11 +840,73 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         updateDevSurfaceSwitcherUi("dev".equals(mCurrentMode));
     }
 
+    private void setDevTerminalActionsView() {
+        bindDevTerminalActionsView(findViewById(android.R.id.content));
+        updateDevTerminalActionsUi("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface));
+    }
+
+    public void bindDevTerminalActionsView(@Nullable View rootView) {
+        View lookupRoot = rootView != null ? rootView : findViewById(android.R.id.content);
+        if (lookupRoot == null) return;
+
+        mDevTerminalActionsView = findViewById(R.id.dev_terminal_actions);
+        mDevTerminalActionButtonsView = findViewById(R.id.dev_terminal_action_buttons);
+        mDevTerminalSessionsButton = findViewById(R.id.dev_terminal_sessions_button);
+        mDevTerminalNewSessionButton = findViewById(R.id.dev_terminal_new_session_button);
+        mDevTerminalToggleButton = findViewById(R.id.dev_terminal_toggle_button);
+        if (mDevTerminalActionsView == null) {
+            mDevTerminalActionsView = lookupRoot.findViewById(R.id.dev_terminal_actions);
+        }
+        if (mDevTerminalActionButtonsView == null) {
+            mDevTerminalActionButtonsView = lookupRoot.findViewById(R.id.dev_terminal_action_buttons);
+        }
+        if (mDevTerminalSessionsButton == null) {
+            mDevTerminalSessionsButton = lookupRoot.findViewById(R.id.dev_terminal_sessions_button);
+        }
+        if (mDevTerminalNewSessionButton == null) {
+            mDevTerminalNewSessionButton = lookupRoot.findViewById(R.id.dev_terminal_new_session_button);
+        }
+        if (mDevTerminalToggleButton == null) {
+            mDevTerminalToggleButton = lookupRoot.findViewById(R.id.dev_terminal_toggle_button);
+        }
+
+        if (mDevTerminalSessionsButton != null) {
+            mDevTerminalSessionsButton.setOnClickListener(v -> {
+                DrawerLayout drawer = getDrawer();
+                if (drawer != null) {
+                    drawer.openDrawer(Gravity.LEFT);
+                }
+            });
+        }
+
+        if (mDevTerminalNewSessionButton != null) {
+            mDevTerminalNewSessionButton.setOnClickListener(v ->
+                mTermuxTerminalSessionActivityClient.addNewSession(false, null));
+            mDevTerminalNewSessionButton.setOnLongClickListener(v -> {
+                TextInputDialogUtils.textInput(TermuxActivity.this, R.string.title_create_named_session, null,
+                    R.string.action_create_named_session_confirm, text -> mTermuxTerminalSessionActivityClient.addNewSession(false, text),
+                    R.string.action_new_session_failsafe, text -> mTermuxTerminalSessionActivityClient.addNewSession(true, text),
+                    -1, null, null);
+                return true;
+            });
+        }
+
+        if (mDevTerminalToggleButton != null && mDevTerminalActionsView != null) {
+            mDevTerminalToggleButton.setOnClickListener(v ->
+                setDevTerminalActionsExpanded(!mDevTerminalActionsExpanded));
+            bindDevTerminalActionsDragListener();
+            mDevTerminalActionsView.post(this::restoreDevTerminalActionsPosition);
+        }
+
+        updateDevTerminalActionsUi("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface));
+    }
+
     private void setActiveDevSurface(@NonNull String surface) {
         if (!"dev".equals(mCurrentMode)) return;
         if (surface.equals(mDevActiveSurface)) return;
 
         mDevActiveSurface = surface;
+        setTerminalToolbarHeight();
         applyModeUi();
     }
 
@@ -800,6 +918,166 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         updateDevSurfaceButtonState(mDevSurfacePreviewButton, "preview".equals(mDevActiveSurface));
         updateDevSurfaceButtonState(mDevSurfaceTerminalButton, "terminal".equals(mDevActiveSurface));
         updateDevSurfaceButtonState(mDevSurfaceControllerButton, "controller".equals(mDevActiveSurface));
+    }
+
+    private void updateDevTerminalActionsUi(boolean visible) {
+        if (mDevTerminalActionsView != null) {
+            mDevTerminalActionsView.setVisibility(visible ? View.VISIBLE : View.GONE);
+        }
+        if (mDevTerminalActionButtonsView != null) {
+            mDevTerminalActionButtonsView.setVisibility(visible && mDevTerminalActionsExpanded ? View.VISIBLE : View.GONE);
+        }
+        updateDevTerminalToggleButtonState();
+        updateDevTerminalGestureExclusion();
+        if (visible && mDevTerminalActionsView != null) {
+            mDevTerminalActionsView.post(() -> {
+                restoreDevTerminalActionsPosition();
+                updateDevTerminalGestureExclusion();
+            });
+        }
+
+        if (mDevTerminalSessionsButton != null) {
+            int sessionCount = 0;
+            if (mTermuxService != null) {
+                sessionCount = mTermuxService.getTermuxSessions().size();
+            }
+            mDevTerminalSessionsButton.setText(sessionCount > 0 ?
+                getString(R.string.dev_terminal_sessions_count, sessionCount) :
+                getString(R.string.dev_terminal_sessions));
+        }
+    }
+
+    private void setDevTerminalActionsExpanded(boolean expanded) {
+        mDevTerminalActionsExpanded = expanded;
+        updateDevTerminalActionsUi("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface));
+    }
+
+    private void bindDevTerminalActionsDragListener() {
+        if (mDevTerminalToggleButton == null || mDevTerminalActionsView == null) return;
+
+        final int touchSlop = ViewConfiguration.get(this).getScaledTouchSlop();
+        final int longPressTimeout = ViewConfiguration.getLongPressTimeout();
+        mDevTerminalToggleButton.setOnTouchListener(new View.OnTouchListener() {
+            private float downRawX;
+            private float downRawY;
+            private float startX;
+            private float startY;
+            private long downTime;
+            private boolean dragging;
+
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        downRawX = event.getRawX();
+                        downRawY = event.getRawY();
+                        startX = mDevTerminalActionsView.getX();
+                        startY = mDevTerminalActionsView.getY();
+                        downTime = event.getEventTime();
+                        dragging = false;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float deltaX = event.getRawX() - downRawX;
+                        float deltaY = event.getRawY() - downRawY;
+                        boolean pastLongPress = (event.getEventTime() - downTime) >= longPressTimeout;
+                        if (!dragging && pastLongPress &&
+                            ((deltaX * deltaX) + (deltaY * deltaY)) > (touchSlop * touchSlop)) {
+                            dragging = true;
+                        }
+                        if (dragging) {
+                            moveDevTerminalActionsTo(startX + deltaX, startY + deltaY);
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                        if (!dragging) {
+                            v.performClick();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+        });
+    }
+
+    private void restoreDevTerminalActionsPosition() {
+        if (mDevTerminalActionsView == null) return;
+        if (mDevTerminalActionsPositionInitialized) {
+            moveDevTerminalActionsTo(mDevTerminalActionsSavedX, mDevTerminalActionsSavedY);
+            return;
+        }
+
+        ViewParent parent = mDevTerminalActionsView.getParent();
+        if (parent instanceof View) {
+            View parentView = (View) parent;
+            float defaultX = parentView.getWidth() - mDevTerminalActionsView.getWidth() - dp(32);
+            float defaultY = (parentView.getHeight() * 0.55f) - (mDevTerminalActionsView.getHeight() / 2f);
+            moveDevTerminalActionsTo(defaultX, defaultY);
+            mDevTerminalActionsPositionInitialized = false;
+            return;
+        }
+
+        mDevTerminalActionsSavedX = mDevTerminalActionsView.getX();
+        mDevTerminalActionsSavedY = mDevTerminalActionsView.getY();
+    }
+
+    private void moveDevTerminalActionsTo(float desiredX, float desiredY) {
+        if (mDevTerminalActionsView == null) return;
+        ViewParent parent = mDevTerminalActionsView.getParent();
+        if (!(parent instanceof View)) return;
+
+        View parentView = (View) parent;
+        float minX = dp(72);
+        float minY = dp(20);
+        float maxX = Math.max(minX, parentView.getWidth() - mDevTerminalActionsView.getWidth() - dp(72));
+        float maxY = Math.max(minY, parentView.getHeight() - mDevTerminalActionsView.getHeight() - dp(20));
+        float clampedX = Math.max(minX, Math.min(desiredX, maxX));
+        float clampedY = Math.max(minY, Math.min(desiredY, maxY));
+
+        mDevTerminalActionsView.setX(clampedX);
+        mDevTerminalActionsView.setY(clampedY);
+        mDevTerminalActionsSavedX = clampedX;
+        mDevTerminalActionsSavedY = clampedY;
+        mDevTerminalActionsPositionInitialized = true;
+        updateDevTerminalGestureExclusion();
+    }
+
+    private void updateDevTerminalToggleButtonState() {
+        if (mDevTerminalToggleButton == null) return;
+
+        mDevTerminalToggleButton.setBackgroundTintList(ColorStateList.valueOf(
+            Color.parseColor(mDevTerminalActionsExpanded ? "#2563EB" : "#0F172A")
+        ));
+        mDevTerminalToggleButton.setTextColor(Color.parseColor(
+            mDevTerminalActionsExpanded ? "#FFFFFF" : "#D1D5DB"
+        ));
+    }
+
+    private void updateDevTerminalGestureExclusion() {
+        if (mDevTerminalActionsView == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;
+
+        List<Rect> exclusionRects = new ArrayList<>();
+        if (mDevTerminalActionsView.getVisibility() == View.VISIBLE) {
+            if (mDevTerminalActionButtonsView != null && mDevTerminalActionButtonsView.getVisibility() == View.VISIBLE) {
+                exclusionRects.add(new Rect(
+                    mDevTerminalActionButtonsView.getLeft(),
+                    mDevTerminalActionButtonsView.getTop(),
+                    mDevTerminalActionButtonsView.getRight(),
+                    mDevTerminalActionButtonsView.getBottom()
+                ));
+            }
+            if (mDevTerminalToggleButton != null && mDevTerminalToggleButton.getVisibility() == View.VISIBLE) {
+                exclusionRects.add(new Rect(
+                    mDevTerminalToggleButton.getLeft(),
+                    mDevTerminalToggleButton.getTop(),
+                    mDevTerminalToggleButton.getRight(),
+                    mDevTerminalToggleButton.getBottom()
+                ));
+            }
+        }
+        mDevTerminalActionsView.setSystemGestureExclusionRects(exclusionRects);
     }
 
     private void updateDevSurfaceButtonState(@Nullable MaterialButton button, boolean selected) {
@@ -1398,6 +1676,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
     public void termuxSessionListNotifyUpdated() {
         mTermuxSessionListViewController.notifyDataSetChanged();
+        updateDevTerminalActionsUi("dev".equals(mCurrentMode) && "terminal".equals(mDevActiveSurface));
     }
 
     public boolean isVisible() {

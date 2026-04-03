@@ -193,6 +193,10 @@
     <string name="dev_surface_preview">Preview</string>
     <string name="dev_surface_terminal">Terminal</string>
     <string name="dev_surface_controller">Controller</string>
+    <string name="dev_terminal_sessions">Sessions</string>
+    <string name="dev_terminal_sessions_count">Sessions (%1$d)</string>
+    <string name="dev_terminal_new_session">New</string>
+    <string name="dev_terminal_toggle">Term</string>
     <string name="status_left_default">ADDR: 127.0.0.1  WORKSPACE: /data/data/com.termux/files/home</string>
     <string name="status_right_default">READY_FOR_DEBUGGING</string>
     <string name="status_right_daily">DAILY_ACTIVE</string>
