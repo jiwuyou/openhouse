@@ -13,11 +13,18 @@ param(
 
     [switch]$Build,
 
-    [switch]$Install
+    [switch]$Install,
+
+    [string]$AppPackage = 'com.openhouse.app',
+
+    [string]$AppActivityClass = 'com.termux.app.TermuxActivity'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:AppFilesPath = "/data/user/0/$AppPackage/files"
+$script:BrowserCliPath = "$script:AppFilesPath/usr/bin/termux-browser"
+$script:AppActivityComponent = "$AppPackage/$AppActivityClass"
 
 function Write-Step {
     param([string]$Message)
@@ -115,7 +122,7 @@ function Invoke-AdbShell {
 function Invoke-BrowserCommand {
     param([string]$Command)
 
-    $wrapped = "run-as com.termux /system/bin/sh -c '$Command'"
+    $wrapped = "run-as $AppPackage /system/bin/sh -c '$Command'"
     $result = Invoke-AdbShell -Command $wrapped
     $raw = $result.Output.Trim()
     if ([string]::IsNullOrWhiteSpace($raw)) {
@@ -142,19 +149,20 @@ function Assert-BrowserOk {
     }
 }
 
-function Wait-TermuxForeground {
+function Wait-AppForeground {
     param([int]$TimeoutSeconds = 15)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         $activityDump = Invoke-AdbShell -Command 'dumpsys activity activities'
-        if ($activityDump.Output -match 'topResumedActivity=.*com\.termux\/\.app\.TermuxActivity') {
+        $activityPattern = [regex]::Escape($script:AppActivityComponent).Replace('/', '\/')
+        if ($activityDump.Output -match "topResumedActivity=.*$activityPattern") {
             return
         }
         Start-Sleep -Milliseconds 500
     }
 
-    Fail 'TermuxActivity did not reach foreground in time.'
+    Fail "Target activity did not reach foreground in time: $script:AppActivityComponent"
 }
 
 function Get-DebugApkPath {
@@ -200,53 +208,53 @@ if ($Install) {
     Assert-Contains -Value $installResult.Output -Expected 'Success' -Message 'APK install did not report Success.'
 }
 
-Write-Step 'Bringing Termux to foreground'
-[void](Invoke-Adb -Arguments @('-s', $DeviceSerial, 'shell', 'am', 'start', '-n', 'com.termux/.app.TermuxActivity'))
-Wait-TermuxForeground
+Write-Step "Bringing target app to foreground ($script:AppActivityComponent)"
+[void](Invoke-Adb -Arguments @('-s', $DeviceSerial, 'shell', 'am', 'start', '-n', $script:AppActivityComponent))
+Wait-AppForeground
 Start-Sleep -Seconds 2
 
 Write-Step 'Smoke 1: daily read-console'
-$consoleResult = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser read-console'
+$consoleResult = Invoke-BrowserCommand "$script:BrowserCliPath read-console"
 Assert-BrowserOk -Payload $consoleResult -Context 'daily read-console'
 
 Write-Step 'Smoke 2: daily open example.com'
-$dailyOpen = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser open https://example.com'
+$dailyOpen = Invoke-BrowserCommand "$script:BrowserCliPath open https://example.com"
 Assert-BrowserOk -Payload $dailyOpen -Context 'daily open'
 Assert-Contains -Value $dailyOpen.result.url -Expected 'https://example.com/' -Message 'daily open did not end on example.com.'
 
-$dailyReadText = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser read-text'
+$dailyReadText = Invoke-BrowserCommand "$script:BrowserCliPath read-text"
 Assert-BrowserOk -Payload $dailyReadText -Context 'daily read-text'
 Assert-Contains -Value $dailyReadText.result.text -Expected 'Example Domain' -Message 'daily read-text did not contain expected page text.'
 
 Write-Step 'Smoke 3: dev workspace form flow'
-$devOpen = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser open https://httpbin.org/forms/post --mode dev --target-context workspace_webview --session-mode shared'
+$devOpen = Invoke-BrowserCommand "$script:BrowserCliPath open https://httpbin.org/forms/post --mode dev --target-context workspace_webview --session-mode shared"
 Assert-BrowserOk -Payload $devOpen -Context 'dev workspace open'
 Assert-AnyContains -Value $devOpen.result.url -ExpectedValues @('https://httpbin.org/forms/post', 'https://httpbin.org/post') -Message 'dev workspace open did not land on the expected httpbin workflow page.'
 
-$devReadTextInitial = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser read-text --mode dev --target-context workspace_webview --session-mode shared'
+$devReadTextInitial = Invoke-BrowserCommand "$script:BrowserCliPath read-text --mode dev --target-context workspace_webview --session-mode shared"
 Assert-BrowserOk -Payload $devReadTextInitial -Context 'dev workspace initial read-text'
 Assert-Contains -Value $devReadTextInitial.result.url -Expected 'https://httpbin.org/forms/post' -Message 'dev workspace did not stay on the form page before interactive actions.'
 Assert-Contains -Value $devReadTextInitial.result.text -Expected 'Customer name:' -Message 'dev workspace initial page text did not match the expected form.'
 
 $strictInteractivePassed = $null
 if ($StrictInteractive) {
-    $devType = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser type --selector input[name=custname] --text smoke-script --mode dev --target-context workspace_webview --session-mode shared'
+    $devType = Invoke-BrowserCommand "$script:BrowserCliPath type --selector input[name=custname] --text smoke-script --mode dev --target-context workspace_webview --session-mode shared"
     Assert-BrowserOk -Payload $devType -Context 'dev workspace type'
     Assert-Contains -Value $devType.result.value -Expected 'smoke-script' -Message 'dev workspace type did not persist the typed value.'
 
-    $devClickRadio = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser click --selector input[name=size][value=medium] --mode dev --target-context workspace_webview --session-mode shared'
+    $devClickRadio = Invoke-BrowserCommand "$script:BrowserCliPath click --selector input[name=size][value=medium] --mode dev --target-context workspace_webview --session-mode shared"
     Assert-BrowserOk -Payload $devClickRadio -Context 'dev workspace click radio'
 
-    $devSubmit = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser click --selector button --mode dev --target-context workspace_webview --session-mode shared'
+    $devSubmit = Invoke-BrowserCommand "$script:BrowserCliPath click --selector button --mode dev --target-context workspace_webview --session-mode shared"
     Assert-BrowserOk -Payload $devSubmit -Context 'dev workspace submit'
 
-    $devReadText = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser read-text --mode dev --target-context workspace_webview --session-mode shared'
+    $devReadText = Invoke-BrowserCommand "$script:BrowserCliPath read-text --mode dev --target-context workspace_webview --session-mode shared"
     Assert-BrowserOk -Payload $devReadText -Context 'dev workspace read-text'
     Assert-Contains -Value $devReadText.result.url -Expected 'https://httpbin.org/post' -Message 'dev workspace form submit did not navigate to the result page.'
     Assert-Contains -Value $devReadText.result.text -Expected '"custname": "smoke-script"' -Message 'dev workspace result did not include the typed customer name.'
     Assert-Contains -Value $devReadText.result.text -Expected '"size": "medium"' -Message 'dev workspace result did not include the selected size.'
 
-    $devReadDom = Invoke-BrowserCommand '/data/user/0/com.termux/files/usr/bin/termux-browser read-dom --mode dev --target-context workspace_webview --session-mode shared'
+    $devReadDom = Invoke-BrowserCommand "$script:BrowserCliPath read-dom --mode dev --target-context workspace_webview --session-mode shared"
     Assert-BrowserOk -Payload $devReadDom -Context 'dev workspace read-dom'
     Assert-Contains -Value $devReadDom.result.url -Expected 'https://httpbin.org/post' -Message 'dev workspace read-dom did not stay on the submitted page.'
     $strictInteractivePassed = $true
