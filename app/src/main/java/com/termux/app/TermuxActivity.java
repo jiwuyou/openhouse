@@ -707,7 +707,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         }
 
         if (statusLeftView != null) {
-            statusLeftView.setText(getString(R.string.status_left_default));
+            statusLeftView.setText("ADDR: 127.0.0.1  WORKSPACE: " + TermuxConstants.TERMUX_HOME_DIR_PATH);
         }
         if (statusRightView != null) {
             statusRightView.setText(getModeStatusRes(mCurrentMode));

@@ -43,6 +43,7 @@ android {
     }
 
     defaultConfig {
+        applicationId "com.openhouse.app"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
         versionCode 118
@@ -54,7 +55,7 @@ android {
         buildConfigField "String", "TERMUX_PACKAGE_VARIANT", "\"" + project.ext.packageVariant + "\"" // Used by TermuxApplication class
         buildConfigField "String", "TERMUX_BOOTSTRAP_ASSET_PREFIX", "\"bootstrap\""
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.termux"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "com.openhouse.app"
         manifestPlaceholders.TERMUX_APP_NAME = "openhouse"
         manifestPlaceholders.TERMUX_API_APP_NAME = "openhouse:API"
         manifestPlaceholders.TERMUX_BOOT_APP_NAME = "openhouse:Boot"

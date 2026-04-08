@@ -32,6 +32,7 @@ import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -67,6 +68,7 @@ import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR
 final class TermuxInstaller {
 
     private static final String LOG_TAG = "TermuxInstaller";
+    private static final String LEGACY_TERMUX_FILES_DIR_PATH = "/data/data/com.termux/files";
 
     /** Performs bootstrap setup if necessary. */
     static void setupBootstrapIfNeeded(final Activity activity, final Runnable whenDone) {
@@ -176,7 +178,7 @@ final class TermuxInstaller {
                                     String[] parts = line.split("←");
                                     if (parts.length != 2)
                                         throw new RuntimeException("Malformed symlink line: " + line);
-                                    String oldPath = parts[0];
+                                    String oldPath = rewriteLegacyBootstrapPath(parts[0]);
                                     String newPath = TERMUX_STAGING_PREFIX_DIR_PATH + "/" + parts[1];
                                     symlinks.add(Pair.create(oldPath, newPath));
 
@@ -212,6 +214,8 @@ final class TermuxInstaller {
                             }
                         }
                     }
+
+                    patchLegacyBootstrapPaths(TERMUX_STAGING_PREFIX_DIR);
 
                     if (symlinks.isEmpty())
                         throw new RuntimeException("No SYMLINKS.txt encountered");
@@ -388,6 +392,55 @@ final class TermuxInstaller {
     private static boolean isPrefixUsable() {
         return new File(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH, "login").exists() ||
             new File(TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH, "sh").exists();
+    }
+
+    private static String rewriteLegacyBootstrapPath(@NonNull String value) {
+        if (value.startsWith(LEGACY_TERMUX_FILES_DIR_PATH)) {
+            return TermuxConstants.TERMUX_FILES_DIR_PATH + value.substring(LEGACY_TERMUX_FILES_DIR_PATH.length());
+        }
+        return value;
+    }
+
+    private static void patchLegacyBootstrapPaths(@NonNull File rootDir) throws Exception {
+        List<File> stack = new ArrayList<>();
+        stack.add(rootDir);
+        while (!stack.isEmpty()) {
+            File current = stack.remove(stack.size() - 1);
+            File[] children = current.listFiles();
+            if (children == null) continue;
+            for (File child : children) {
+                if (child.isDirectory()) {
+                    stack.add(child);
+                } else if (child.isFile()) {
+                    patchLegacyBootstrapPathInFile(child);
+                }
+            }
+        }
+    }
+
+    private static void patchLegacyBootstrapPathInFile(@NonNull File file) throws Exception {
+        byte[] bytes;
+        try (FileInputStream inputStream = new FileInputStream(file);
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            bytes = outputStream.toByteArray();
+        }
+
+        for (byte value : bytes) {
+            if (value == 0) return;
+        }
+
+        String content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        String rewritten = content.replace(LEGACY_TERMUX_FILES_DIR_PATH, TermuxConstants.TERMUX_FILES_DIR_PATH);
+        if (content.equals(rewritten)) return;
+
+        try (FileOutputStream outputStream = new FileOutputStream(file, false)) {
+            outputStream.write(rewritten.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     public static byte[] loadZipBytes(@NonNull Context context) throws Exception {

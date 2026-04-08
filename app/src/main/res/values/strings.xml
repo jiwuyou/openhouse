@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!DOCTYPE resources [
-    <!ENTITY TERMUX_PACKAGE_NAME "com.termux">
+    <!ENTITY TERMUX_PACKAGE_NAME "com.openhouse.app">
     <!ENTITY TERMUX_APP_NAME "openhouse">
     <!ENTITY TERMUX_API_APP_NAME "openhouse:API">
     <!ENTITY TERMUX_BOOT_APP_NAME "openhouse:Boot">
