@@ -6,6 +6,7 @@ repos="
 /root/openhouse-bootstrap
 /root/cc-connect-fresh
 /root/projects/cc-proxy
+/root/projects/openhouse-key-tool
 /root/projects/smallphone/smallphone-active
 /root/projects/service-manager
 /root/openhouse-app-guide-site
@@ -21,4 +22,3 @@ for repo in $repos; do
     printf 'MISS %s\n' "$repo"
   fi
 done
-

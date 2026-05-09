@@ -13,6 +13,7 @@ ports, service-manager registrations, integration plans, and release flow.
 - `/root/openhouse-bootstrap` - bootstrap installer and online maintenance source.
 - `/root/cc-connect-fresh` - OpenHouse Connect agent bridge and mobile web client.
 - `/root/projects/cc-proxy` - Claude Code to OpenAI-compatible proxy.
+- `/root/projects/openhouse-key-tool` - manifest-driven API key replacement and verification tool.
 - `/root/projects/smallphone/smallphone-active` - SmallPhone application stack.
 - `/root/projects/service-manager` - local service control plane.
 - `/root/openhouse-app-guide-site` - screenshot-led static usage guide.
@@ -34,6 +35,6 @@ integration notes, and cross-repository plans here.
 - [Ports](docs/ports.md)
 - [Service manager](docs/service-manager.md)
 - [Bootstrap flow](docs/bootstrap-flow.md)
+- [Install contract](docs/install-contract.md)
 - [Release flow](docs/release-flow.md)
 - [Integration tests](docs/integration-tests.md)
-

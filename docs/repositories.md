@@ -50,6 +50,25 @@ Key files:
 - `crates/`
 - `npm/`
 
+## `/root/projects/openhouse-key-tool`
+
+Manifest-driven API key replacement and verification tool.
+
+Current role:
+
+- Replace recorded API key targets after first-run setup.
+- Back up changed files before replacement.
+- Run manifest-defined smoke tests after replacement.
+- Roll back on failed tests and keep logs for OpenCode troubleshooting.
+
+Key files:
+
+- `README.md`
+- `examples/default.profile.json`
+- `examples/cc-proxy.profile.json`
+- `src/openhouse_key_tool/cli.py`
+- `tests/test_cli.py`
+
 ## `/root/projects/smallphone/smallphone-active`
 
 SmallPhone product app and integration workspace.
@@ -92,4 +111,3 @@ Key paths:
 - `docs/`
 - `site/`
 - `scripts/build_docs_site.py`
-
